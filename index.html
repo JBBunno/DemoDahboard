@@ -178,6 +178,28 @@ select{background:#fff;border:1px solid var(--line);color:var(--ink);border-radi
 .err{background:var(--red-soft);border:1px solid var(--red);border-radius:var(--r);color:var(--red);padding:10px 16px;margin-bottom:12px;font-size:13px;display:none}
 .empty{text-align:center!important;color:var(--muted)!important;padding:24px!important;font-weight:400!important}
 footer{text-align:center;font-size:11px;color:var(--muted);padding:10px 0 30px}
+
+/* ── DRILL-DOWN MODAL ── */
+tr.clickable{cursor:pointer}
+tr.clickable:hover td{background:#eef4fc}
+tr.clickable td:first-child::after{content:"›";color:var(--muted);margin-left:8px;font-weight:600}
+.has-note{display:inline-block;margin-left:6px;font-size:10px;color:var(--blue);background:var(--blue-soft);border-radius:3px;padding:1px 5px;font-weight:600;vertical-align:1px}
+.modal-bg{position:fixed;inset:0;background:rgba(15,37,64,.45);display:none;align-items:center;justify-content:center;z-index:500;padding:16px}
+.modal-bg.open{display:flex}
+.modal{background:#fff;border-radius:8px;width:100%;max-width:620px;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(15,37,64,.3);overflow:hidden}
+.modal-head{background:var(--navy);color:#fff;padding:16px 20px;display:flex;gap:12px;align-items:flex-start;border-bottom:3px solid var(--gold)}
+.modal-eyebrow{font-size:10px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);margin-bottom:4px}
+.modal-title{font-size:17px;font-weight:600;line-height:1.3}
+.modal-close{margin-left:auto;background:none;border:none;color:rgba(255,255,255,.7);font-size:24px;line-height:1;cursor:pointer;padding:0 4px}
+.modal-close:hover{color:#fff}
+.modal-body{padding:18px 20px;overflow:auto}
+.modal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 16px;margin-bottom:16px}
+@media(max-width:520px){.modal-grid{grid-template-columns:repeat(2,1fr)}}
+.mg-label{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
+.mg-value{font-family:var(--font-d);font-size:13px;color:var(--ink)}
+.notes-label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--navy);margin-bottom:6px}
+.notes-box{background:#f7f9fb;border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:var(--r);padding:12px 14px;font-size:13px;line-height:1.55;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+.notes-box.empty-note{color:var(--muted);font-style:italic;border-left-color:var(--line)}
 </style>
 </head>
 <body>
@@ -368,8 +390,26 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:10px 0 30px}
     </div>
   </div>
 
-  <footer>Palm Crest Scheduling Solutions · Live from MS Project </footer>
+  <footer>Palm Crest Scheduling Solutions · Live from MS Project via Google Sheets</footer>
 </main>
+
+<!-- ══ DRILL-DOWN POP-UP ══ -->
+<div class="modal-bg" id="taskModal" onclick="if(event.target===this)closeTaskDetail()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tmTitle">
+    <div class="modal-head">
+      <div>
+        <div class="modal-eyebrow" id="tmEyebrow">Milestone</div>
+        <div class="modal-title" id="tmTitle"></div>
+      </div>
+      <button class="modal-close" onclick="closeTaskDetail()" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-grid" id="tmGrid"></div>
+      <div class="notes-label">Notes from Project</div>
+      <div class="notes-box" id="tmNotes"></div>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
@@ -704,7 +744,8 @@ function renderControls(){
     tile(critLate.length?'r':critOpen.length?'a':'g','Critical (0 Slack) Open',critOpen.length,`${critLate.length} already late`)+
     tile(msDone===ms.length&&ms.length?'g':'b','Milestones Achieved',`${msDone} / ${ms.length}`,ms.length?Math.round(msDone/ms.length*100)+'% complete':'None in schedule');
   // Milestones table
-  const rows=ms.slice().sort((a,b)=>(a.pf||a.finish||0)-(b.pf||b.finish||0)).map(t=>{
+  _msRows=ms.slice().sort((a,b)=>(a.pf||a.finish||0)-(b.pf||b.finish||0));
+  const rows=_msRows.map((t,i)=>{
     const base=t.pf||t.ps, fc=t.finish||t.start;
     const varH=base&&fc?(fc-base)/36e5:0;
     let st;
@@ -712,10 +753,37 @@ function renderControls(){
     else if(base&&base<now) st='<span class="tag tag-red">Late</span>';
     else if(varH>0.01) st='<span class="tag tag-amber">At risk</span>';
     else st='<span class="tag tag-blue">On track</span>';
-    return `<tr><td class="wrap"><span class="ms">◆</span>${esc(t.name)}</td><td class="mono">${fmtDate(base)}</td><td class="mono">${fmtDate(fc)}</td><td>${fvTag(varH)}</td><td>${st}</td></tr>`;
+    t._status=st; t._varH=varH;
+    return `<tr class="clickable" onclick="showTaskDetail(_msRows[${i}])" title="Click to view notes"><td class="wrap"><span class="ms">◆</span>${esc(t.name)}${t.notes?'<span class="has-note">NOTE</span>':''}</td><td class="mono">${fmtDate(base)}</td><td class="mono">${fmtDate(fc)}</td><td>${fvTag(varH)}</td><td>${st}</td></tr>`;
   }).join('');
   document.getElementById('msTable').innerHTML=`<thead><tr><th>Milestone</th><th>Baseline</th><th>Forecast</th><th>Var (h)</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="empty">No milestones found</td></tr>'}</tbody>`;
 }
+
+// ── DRILL-DOWN POP-UP ─────────────────────────────────────────
+let _msRows=[];
+function showTaskDetail(t){
+  if(!t) return;
+  const base=t.pf||t.ps, fc=t.finish||t.start;
+  document.getElementById('tmEyebrow').textContent=(t.milestone?'Milestone':'Task')+(t.id?' · ID '+t.id:'');
+  document.getElementById('tmTitle').textContent=t.name;
+  const f=(label,val)=>`<div><div class="mg-label">${label}</div><div class="mg-value">${val}</div></div>`;
+  document.getElementById('tmGrid').innerHTML=
+    f('Status',t._status||'—')+
+    f('% Complete',t.pct+'%')+
+    f('CP / CT',cpBadge(t.cpct))+
+    f('Baseline',fmtDate(base))+
+    f('Forecast',fmtDate(fc))+
+    f('Variance',(t._varH!==undefined?fvTag(t._varH)+' h':'—'))+
+    f('Team',esc(t.team||'—'))+
+    f('Work Order',esc(t.wo||'—'))+
+    f('Total Slack',fmtN1(t.slack));
+  const nb=document.getElementById('tmNotes');
+  if(t.notes){ nb.textContent=t.notes; nb.classList.remove('empty-note'); }
+  else{ nb.textContent='No notes recorded against this task in Project.'; nb.classList.add('empty-note'); }
+  document.getElementById('taskModal').classList.add('open');
+}
+function closeTaskDetail(){ document.getElementById('taskModal').classList.remove('open'); }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeTaskDetail(); });
 
 // ══════════════════════════════════════════════════════════════
 // CRITICAL WORKS  (unchanged logic from LiveTrack)
